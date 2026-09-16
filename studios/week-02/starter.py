@@ -28,14 +28,31 @@ def goal_based(goal=(False, False)):
 
     Returns: a function ``agent(percept) -> action``.
     """
-    # TODO: build an agent with internal state that:
-    #   - reads `loc` from the percept (the sensor WORKS here — unlike the given
-    #     model_based, which assumes loc=0 and so only survives a broken sensor
-    #     when that belief happens to be right),
-    #   - Sucks when the current room is dirty (and records it clean),
-    #   - moves toward an as-yet-uncleaned room otherwise,
-    #   - returns "NoOp" once its record matches `goal` (all rooms clean).
-    raise NotImplementedError
+    # Internal state: what we believe about each room. None = never perceived,
+    # True = dirty, False = clean. The percept only ever tells us about the room
+    # we are standing in, so the belief is how the goal test becomes possible.
+    belief = [None, None]
+
+    def goal_reached():
+        return all(b is not None and b == g for b, g in zip(belief, goal))
+
+    def agent(percept):
+        loc, dirty = percept
+        belief[loc] = dirty                     # perceive: update the model
+
+        if goal_reached():
+            return "NoOp"                       # plan is finished — stop acting
+
+        if dirty and not goal[loc]:
+            belief[loc] = False                 # Suck will make it clean
+            return "Suck"
+
+        # This room already matches the goal; the only room that can still be
+        # wrong is the other one, so head there.
+        other = 1 - loc
+        return "Right" if other == 1 else "Left"
+
+    return agent
 
 
 def utility_based(move_cost=1, suck_cost=2, clean_reward=3):
@@ -53,12 +70,34 @@ def utility_based(move_cost=1, suck_cost=2, clean_reward=3):
 
     Returns: a function ``agent(percept) -> action``.
     """
-    # TODO: build an agent with internal state that:
-    #   - reads `loc` from the percept (the sensor works here),
-    #   - Sucks the current room when dirty (a clean room repays suck_cost fast),
-    #   - otherwise weighs the immediate cost of crossing against the immediate
-    #     reward of doing so, and returns "NoOp" when crossing does not pay off.
-    raise NotImplementedError
+    # Same belief state as the goal-based agent: None = never perceived.
+    # (The notebook's `utility_agent` tracked `clean` instead; same idea, but it
+    # never read `loc`, which is why it assumed it started in room 0.)
+    belief = [None, None]
+
+    def agent(percept):
+        loc, dirty = percept
+        belief[loc] = dirty
+
+        # Sucking HERE: pay suck_cost once, and the reward lands on this very
+        # step (world.step applies Suck before the reward is counted).
+        if dirty and clean_reward - suck_cost > 0:
+            belief[loc] = False
+            return "Suck"
+
+        # Crossing: the payoff sits in the OTHER room, which the percept does
+        # not show. The cheapest way it could ever pay is move-then-suck, so
+        # that is the most generous number a horizon-free agent may put on it:
+        #     -move_cost - suck_cost + clean_reward
+        # This is the notebook's `move_cost < 1.0` test, re-derived in
+        # tournament.py's numbers (3 - 2 = 1, so again the threshold is 1).
+        other = 1 - loc
+        if belief[other] is not False and clean_reward - suck_cost - move_cost > 0:
+            return "Right" if other == 1 else "Left"
+
+        return "NoOp"          # crossing is not worth it
+
+    return agent
 
 
 # ---- Task 2 sketch (the LLM as agent function) ------------------------------
